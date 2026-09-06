@@ -63,6 +63,15 @@ class Road3D:
         DEPTH, STEP = self.DEPTH, self.STEP
         crv = self._smooth_crv
 
+        # 원경 대기 안개(atmospheric perspective) 색 — 수평선에서 도로/잔디가
+        # 이 색으로 흐려지며 고전 레이싱 게임 특유의 깊이감을 만든다.
+        haze = (150, 165, 195)
+
+        def fog(col, f):
+            return (int(col[0]*(1-f)+haze[0]*f),
+                    int(col[1]*(1-f)+haze[1]*f),
+                    int(col[2]*(1-f)+haze[2]*f))
+
         # ── 하늘 그라데이션 ────────────────────────────────
         for y in range(hy):
             t = y / max(1, hy)
@@ -87,12 +96,16 @@ class Road3D:
 
             # 소실점 = 커브 이동 + 조향 피드백
             # 커브: 멀수록 크게 (1-t), 강도 55
-            # 조향: 우측 이동 시 도로가 왼쪽으로 이동 → player_x_cam × -60
+            # 조향: 우측 이동 시 시점도 우측으로 부드럽게 기울어짐(자연스러운 방향)
             road_cx = (sw // 2
                        + int(crv * (1.0 - t) * 55)
-                       + int(player_x_cam * (1.0 - t) * -60))
+                       + int(player_x_cam * (1.0 - t) * 38))
 
             self._row_cx[y] = road_cx
+
+            # 원경 안개 강도 (수평선=1.0 → 하단=0.0), 근거리는 완만하게
+            f = max(0.0, min(1.0, 1.0 - t))
+            f *= f
 
             if y < sh - STEP * 2:
                 road_cx_bottom = road_cx
@@ -106,6 +119,11 @@ class Road3D:
 
             g = self.grass_base
             grass_c = (min(255,g[0]+8), min(255,g[1]+15), min(255,g[2]+8)) if stripe else g
+
+            # 원경 안개 적용 → 멀수록 색이 대기색으로 흐려져 깊이감 상승
+            road_c   = fog(road_c,   f)
+            rumble_c = fog(rumble_c, f)
+            grass_c  = fog(grass_c,  f)
 
             rumble_w = max(3, road_w_px // 7)
             lx = road_cx - road_w_px
@@ -122,7 +140,48 @@ class Road3D:
             if rx + rumble_w < sw:
                 pygame.draw.rect(screen, grass_c, (rx+rumble_w, y, sw-rx-rumble_w, STEP))
 
+        # ── 도로변 표지판 (원근 깊이 + 속도감) ────────────────
+        # 일정 간격의 세계 z마다 좌우에 빨강/흰색 폴을 세워 원근으로 투영.
+        self._draw_poles(screen)
+
         return road_cx_bottom, road_w_bottom
+
+    # ── 도로변 폴 렌더링 ──────────────────────────────────
+    def _draw_poles(self, screen):
+        sw, sh, hy = self.sw, self.sh, self.horizon_y
+        DEPTH, STEP = self.DEPTH, self.STEP
+        spacing = self.SEG_LEN // 2
+        base = (int(self.camera_z) // spacing) * spacing
+
+        # 먼 것부터 그려 가까운 폴이 위에 오도록
+        for i in range(46, 0, -1):
+            world_z = base + i * spacing
+            z_rel   = world_z - self.camera_z
+            if z_rel < 30:
+                continue
+            sy = hy + int(DEPTH * (sh - hy) / z_rel)
+            if not (hy < sy < sh):
+                continue
+
+            y_key   = (sy // STEP) * STEP
+            road_cx = self._row_cx.get(y_key, sw // 2)
+            road_w  = max(4, int(self.road_hw * DEPTH / z_rel))
+            scale   = DEPTH / z_rel
+
+            ph  = max(2, int(70 * scale))   # 폴 높이
+            pw  = max(1, int(7  * scale))   # 폴 두께
+            off = int(road_w * 1.22)        # 도로 바깥쪽 간격
+            alt = (world_z // spacing) % 2
+            top = (225, 45, 45) if alt else (238, 238, 238)
+
+            for sign in (-1, 1):
+                px = road_cx + sign * off
+                if -20 < px < sw + 20:
+                    pygame.draw.rect(screen, (60, 60, 60),
+                                     (px - pw // 2, sy - ph, pw, ph))
+                    pygame.draw.rect(screen, top,
+                                     (px - pw, sy - ph, pw * 2,
+                                      max(2, int(12 * scale))))
 
     # ── 장애물 화면 좌표 투영 ────────────────────────────
     def project_obstacle(self, lane_norm: float, z_rel: float):

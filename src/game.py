@@ -16,9 +16,10 @@ _CIRCUIT_DIR = os.path.join(
 # ─────────────────────────────────────────────────────────────
 class Obstacle3D:
     WIDTH_WORLD  = 120   # 세계 단위 폭 (충돌 판정용)
+    # 위험(적) 차량 — 채도 높은 눈에 띄는 색으로 통일해 먼 거리에서도 식별
     COLORS = [
-        (160,160,160),(100,80,60),(60,80,140),
-        (140,130,60),(100,60,100),(180,100,40),
+        (220, 40, 40),(240,130, 20),(200, 40,160),
+        ( 60,120,220),(230,200, 30),(220, 60, 60),
     ]
 
     def __init__(self, z_spawn, lane, speed, can_change=False):
@@ -75,6 +76,16 @@ class Obstacle3D:
         H = max(1, int(76 * scale))
         x = sx - W // 2
         y = sy - H       # 차 하단이 sy에 오도록
+
+        # ── 바닥 그림자 + 빨강 위험 링 (원거리 식별용) ─────
+        # 차체가 작아 구분이 어려운 먼 거리에서도 "빨간 링 = 장애물"로 인지.
+        sw_ = max(6, int(66 * scale))
+        sh_ = max(3, int(20 * scale))
+        pygame.draw.ellipse(screen, (25, 25, 30),
+                            (sx - sw_ // 2, sy - sh_ // 2, sw_, sh_))
+        pygame.draw.ellipse(screen, (255, 70, 70),
+                            (sx - sw_ // 2, sy - sh_ // 2, sw_, sh_),
+                            max(2, int(3 * scale)))
 
         c     = self.color
         dark  = (20, 20, 20)
@@ -150,17 +161,27 @@ class Booster3D:
             return
         sx, sy, scale = pos
         r = max(4, int(20 * scale))
+
+        # ── 바닥 초록 링 (원거리에서 "초록 = 부스터"로 즉시 구분) ──
+        sw_ = max(6, int(60 * scale))
+        sh_ = max(3, int(18 * scale))
+        pygame.draw.ellipse(screen, (15, 45, 30),
+                            (sx - sw_ // 2, sy - sh_ // 2, sw_, sh_))
+        pygame.draw.ellipse(screen, (70, 255, 150),
+                            (sx - sw_ // 2, sy - sh_ // 2, sw_, sh_),
+                            max(2, int(3 * scale)))
+
         glow_r = r + int(4 * abs(math.sin(math.radians(self.frame * 7))))
-        pygame.draw.circle(screen, (255, 230, 0), (sx, sy - r), glow_r + 3)
-        pygame.draw.circle(screen, (255, 160, 0), (sx, sy - r), glow_r)
-        # 별 (5각)
+        pygame.draw.circle(screen, (60, 255, 150), (sx, sy - r), glow_r + 3)
+        pygame.draw.circle(screen, (0, 200, 255),  (sx, sy - r), glow_r)
+        # 별 (5각) — 청록/흰색으로 장애물(빨강)과 확실히 대비
         pts = []
         for i in range(10):
             a    = math.radians(self.frame * 4 + i * 36 - 90)
             ri   = glow_r if i % 2 == 0 else glow_r // 2 + 2
             pts.append((sx + ri * math.cos(a), sy - r + ri * math.sin(a)))
         if len(pts) >= 3:
-            pygame.draw.polygon(screen, (255, 255, 120), pts)
+            pygame.draw.polygon(screen, (200, 255, 240), pts)
         pygame.draw.circle(screen, (255, 255, 255), (sx, sy - r), max(2, r // 3))
 
 
@@ -180,7 +201,8 @@ class Game:
     DESPAWN_Z = -600.0
     # 충돌 판정 범위: z=550 → screen_y≈642px (화면 하단 2/3 위치)
     # z=0: 장애물이 플레이어를 통과 → dodge 처리
-    HIT_Z_FAR = 550.0
+    HIT_Z_FAR  = 550.0
+    HIT_Z_NEAR = 0.0     # 부스터 수집 근거리 경계 (미정의 시 크래시하던 버그 수정)
 
     def __init__(self, sw, sh, selections):
         self.sw = sw
