@@ -344,8 +344,8 @@ class Game:
         # 카메라 전진
         self.road.advance(self.obstacle_speed)
 
-        # 조향 카메라: player_x를 부드럽게 따라가 시점 이동
-        self._cam_x += (self.player_x - self._cam_x) * 0.12
+        # 리지드 체이스: 카메라가 차 횡위치를 지연 없이 즉시 추종 (강체 결합)
+        self._cam_x = self.player_x
 
         # 플레이어 무적 타이머
         if self.invincible > 0:
@@ -450,8 +450,9 @@ class Game:
             ps  = self._player_surf
             pw  = ps.get_width()
             ph  = ps.get_height()
-            # 플레이어 x를 도로 경계 안에서 변환
-            px  = road_cx + int(self.player_x * road_w * 0.55) - pw // 2
+            # 리지드 체이스 뷰: 차는 항상 화면 중앙 하단에 고정
+            # (좌우 이동은 도로/월드가 반대로 밀리는 것으로 표현됨)
+            px  = self.sw // 2 - pw // 2
             py  = self.sh - ph - 20
             screen.blit(ps, (px, py))
 
