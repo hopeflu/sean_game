@@ -41,6 +41,7 @@ class App:
         self.my_pitcher = None      # 우리 선발 (1경기 모드에서 유저가 던진다)
 
         self.scene = TitleScene(self)
+        self._apply_cursor_visibility()
 
     # ── 메인 루프 ─────────────────────────────────────────
     def run(self):
@@ -86,11 +87,22 @@ class App:
 
         pygame.display.flip()
 
+    def _apply_cursor_visibility(self):
+        """
+        타석 화면에서는 OS 커서를 숨기고 게임이 그린 픽셀 커서만 보여준다.
+        (타자 조준이 마우스라 두 개가 겹쳐 보이면 지저분하다)
+        """
+        try:
+            pygame.mouse.set_visible(not getattr(self.scene, "hide_cursor", False))
+        except Exception:
+            pass
+
     def _switch_scene(self):
         if self.scene.quit:
             self.running = False
         elif self.scene.next_scene is not None:
             self.scene = self.scene.next_scene
+            self._apply_cursor_visibility()
 
 
 def main():

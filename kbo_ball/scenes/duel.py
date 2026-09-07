@@ -19,6 +19,8 @@ from .base import Scene
 
 
 class DuelScene(Scene):
+    hide_cursor = True    # 타자 조준이 마우스라 OS 커서를 숨긴다
+
     def __init__(self, app):
         super().__init__(app)
         self.rng = random.Random()

@@ -39,6 +39,8 @@ CPU_DIFFICULTY = 4
 
 
 class GameScene(Scene):
+    hide_cursor = True    # 타자 조준이 마우스라 OS 커서를 숨긴다
+
     def __init__(self, app):
         super().__init__(app)
         self.rng = random.Random()
@@ -241,14 +243,10 @@ class GameScene(Scene):
             widgets.shift_indicator(win, 494, C.WIN_H - 46,
                                     self.engine.selected_shift)
             # 시프트 표시(x 494~690) 오른쪽 좁은 칸에만 그린다
-            if self.two_player:
-                draw_text(win, C.CONTROL_HINT_2P_P1, (C.WIN_W - 14, C.WIN_H - 48),
-                          size=14, color=(150, 160, 195), anchor="topright")
-                draw_text(win, C.CONTROL_HINT_2P_P2, (C.WIN_W - 14, C.WIN_H - 28),
-                          size=14, color=(150, 160, 195), anchor="topright")
-            else:
-                draw_text(win, C.CONTROL_HINT_PITCH, (C.WIN_W - 14, C.WIN_H - 38),
-                          size=13, color=(130, 140, 175), anchor="topright")
+            draw_text(win, C.CONTROL_HINT_ROLE_PITCH, (C.WIN_W - 14, C.WIN_H - 48),
+                      size=14, color=(150, 160, 195), anchor="topright")
+            draw_text(win, C.CONTROL_HINT_ROLE_BAT, (C.WIN_W - 14, C.WIN_H - 28),
+                      size=14, color=(150, 160, 195), anchor="topright")
         else:
             widgets.stat_line(win, 24, C.WIN_H - 40, half.stats)
             draw_text(win, C.CONTROL_HINT_BAT, (C.WIN_W - 24, C.WIN_H - 40),
@@ -278,17 +276,17 @@ class GameScene(Scene):
                 self.bat_team["accent"])
         elif self.engine.state == atbat.SELECT:
             # 유저 투구 — 무엇을 해야 하는지 짧게 안내
-            move = "WASD" if (self.two_player and self.pitcher_player == 2) \
-                else "방향키"
-            throw = "ENTER" if (self.two_player and self.pitcher_player == 2) \
-                else "SPACE"
-            widgets.panel(win, (C.WIN_W // 2 - 240, C.WIN_H - 146, 480, 76))
-            draw_text(win, f"{self.engine.selected_type['name']} 준비",
-                      (C.WIN_W // 2, C.WIN_H - 138), size=20,
-                      color=self.engine.selected_type["color"], bold=True,
-                      anchor="midtop")
-            draw_text(win, f"{move} 코스   1-5 구종   Q E 수비   {throw} 투구",
-                      (C.WIN_W // 2, C.WIN_H - 106), size=15,
+            eng = self.engine
+            widgets.panel(win, (C.WIN_W // 2 - 250, C.WIN_H - 152, 500, 82))
+            draw_text(win,
+                      f"{eng.selected_type['name']}  ·  {eng.course_label}",
+                      (C.WIN_W // 2, C.WIN_H - 144), size=20,
+                      color=eng.selected_type["color"], bold=True, anchor="midtop")
+            draw_text(win, "넘패드 1-9 코스   0 유인구   1-5 구종",
+                      (C.WIN_W // 2, C.WIN_H - 116), size=14,
+                      color=(170, 180, 210), anchor="midtop")
+            draw_text(win, "Q E 수비 시프트   ENTER 투구",
+                      (C.WIN_W // 2, C.WIN_H - 96), size=14,
                       color=(170, 180, 210), anchor="midtop")
 
     def playfield_offset(self):

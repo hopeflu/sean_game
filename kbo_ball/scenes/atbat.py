@@ -42,7 +42,7 @@ from ..engine import batted_ball as bbmod
 from ..engine import defense
 from ..engine import swing as swingmod
 from ..data.teams import contrast_uniform
-from ..engine.pitch import PITCH_TYPES, make_pitch_at
+from ..engine.pitch import PITCH_TYPES, cell_center as pitch_cell_center, make_pitch_at
 from ..retro import vgradient, dashed_rect
 from ..ui import sprites, field_view
 
@@ -58,19 +58,34 @@ PITCH_KEYS = (pygame.K_1, pygame.K_2, pygame.K_3, pygame.K_4, pygame.K_5)
 # 수비 시프트 순환
 SHIFT_PREV, SHIFT_NEXT = pygame.K_q, pygame.K_e
 
-# ── 플레이어별 키셋 ───────────────────────────────────────
-# 2인용에서는 **키가 사람을 따라간다**(1P는 늘 방향키+SPACE). 역할이 반 이닝마다
-# 바뀌어도 각자 쓰던 키를 그대로 쓸 수 있어야 혼란이 없다.
-# 1인용에서는 한 사람이 두 역할을 번갈아 맡으므로 두 키셋을 모두 받는다.
-_ARROWS = {"left": (pygame.K_LEFT,), "right": (pygame.K_RIGHT,),
-           "up": (pygame.K_UP,), "down": (pygame.K_DOWN,)}
-_WASD = {"left": (pygame.K_a,), "right": (pygame.K_d,),
-         "up": (pygame.K_w,), "down": (pygame.K_s,)}
-_BOTH = {k: _ARROWS[k] + _WASD[k] for k in _ARROWS}
+# ── 입력 장치는 **역할**을 따라간다 ───────────────────────
+# 타자 = 마우스, 투수 = 키보드(구종) + 넘패드(코스).
+# 2인용에서는 반 이닝마다 두 사람이 마우스와 키보드를 주고받는다.
+# 장치가 갈려 있으므로 1P/2P 키를 따로 나눌 필요가 없다.
+#
+# 넘패드 배열이 스트라이크존 3x3 격자와 그대로 겹친다:
+#     7 8 9   ← 높은 코스
+#     4 5 6
+#     1 2 3   ← 낮은 코스
+NUMPAD_CELLS = {
+    pygame.K_KP7: (0, 0), pygame.K_KP8: (1, 0), pygame.K_KP9: (2, 0),
+    pygame.K_KP4: (0, 1), pygame.K_KP5: (1, 1), pygame.K_KP6: (2, 1),
+    pygame.K_KP1: (0, 2), pygame.K_KP2: (1, 2), pygame.K_KP3: (2, 2),
+}
+# 넘패드가 없는 키보드를 위한 대체 키 (상단 숫자열은 구종이 쓰므로 U~M 3x3)
+FALLBACK_CELLS = {
+    pygame.K_u: (0, 0), pygame.K_i: (1, 0), pygame.K_o: (2, 0),
+    pygame.K_j: (0, 1), pygame.K_k: (1, 1), pygame.K_l: (2, 1),
+    pygame.K_m: (0, 2), pygame.K_COMMA: (1, 2), pygame.K_PERIOD: (2, 2),
+}
+OUTSIDE_KEYS = (pygame.K_KP0, pygame.K_KP_PERIOD, pygame.K_SLASH)
+THROW_KEYS = (pygame.K_RETURN, pygame.K_KP_ENTER)
+SWING_KEYS = (pygame.K_SPACE, pygame.K_z)          # 마우스 없이도 칠 수 있게
+BAT_ARROWS = {"left": (pygame.K_LEFT,), "right": (pygame.K_RIGHT,),
+              "up": (pygame.K_UP,), "down": (pygame.K_DOWN,)}
 
-_P1_ACT = (pygame.K_SPACE, pygame.K_z)
-_P2_ACT = (pygame.K_RETURN, pygame.K_KP_ENTER)
-_SOLO_ACT = _P1_ACT + _P2_ACT
+# 유인구 모드에서 존 가장자리 바깥으로 밀어내는 거리(px)
+OUTSIDE_PUSH = 16
 
 
 class AtBatEngine:
@@ -87,8 +102,10 @@ class AtBatEngine:
         # 타자도 미리 배트를 겨눌 수 있어야 하므로 하나로는 부족하다.
         self.bat_x = C.ZONE_X + C.ZONE_W / 2      # 타자 배트 조준
         self.bat_y = C.ZONE_Y + C.ZONE_H / 2
-        self.pit_x = C.ZONE_X + C.ZONE_W / 2      # 투수 목표 코스
-        self.pit_y = C.ZONE_Y + C.ZONE_H / 2
+        # 투수 목표 코스는 넘패드로 고른 3x3 칸에서 계산한다
+        self.course_cell = (1, 1)      # (열, 행) — 넘패드 5 = 한복판
+        self.outside = False           # True면 존 가장자리 바깥(유인구)
+        self.pit_x, self.pit_y = self._course_xy()
         self.pitch_idx = 0             # 선택한 구종
         self.shift_idx = 0             # 선택한 수비 시프트
 
@@ -96,6 +113,9 @@ class AtBatEngine:
         self.swung = False
         self.shake = 0
         self.frame = 0
+        # 마우스를 움직이면 배트 커서가 따라오고, 방향키를 쓰면 잠시 꺼진다.
+        # (마우스가 없는 환경에서 커서가 구석에 박히는 것을 막는다)
+        self._mouse_active = True
 
         self.state = READY
         self.timer = 50
@@ -121,84 +141,135 @@ class AtBatEngine:
 
     @property
     def two_humans(self) -> bool:
-        """양쪽 다 사람 = 2인용. 키셋을 사람별로 갈라야 한다."""
+        """양쪽 다 사람 = 2인용 대전."""
         return self.batter_is_human and self.pitcher_is_human
 
-    def _move_keys(self, player):
-        if not self.two_humans:
-            return _BOTH
-        return _ARROWS if player == 1 else _WASD
+    @property
+    def course_label(self) -> str:
+        """HUD 표시용 코스 이름."""
+        col, row = self.course_cell
+        v = ("높은", "가운데", "낮은")[row]
+        h = ("몸쪽", "한복판", "바깥쪽")[col]
+        base = f"{v} {h}"
+        return base + (" · 유인구" if self.outside else "")
 
-    def _act_keys(self, player):
-        if not self.two_humans:
-            return _SOLO_ACT
-        return _P1_ACT if player == 1 else _P2_ACT
+    def _course_xy(self):
+        """
+        고른 3x3 칸 → 홈플레이트 목표 좌표.
+        유인구 모드면 칸의 방향으로 존 밖까지 밀어낸다(한복판은 그대로).
+        """
+        col, row = self.course_cell
+        cx, cy = pitch_cell_center(col, row)
+        if self.outside:
+            cx += (col - 1) * OUTSIDE_PUSH
+            cy += (row - 1) * OUTSIDE_PUSH
+        return cx, cy
 
     # ── 입력 ──────────────────────────────────────────────
     def handle_event(self, event) -> bool:
         """처리했으면 True. 씬은 남은 키(ESC 등)를 직접 처리한다."""
+
+        # 마우스를 움직이면 배트 커서 추종을 다시 켠다
+        if event.type == pygame.MOUSEMOTION:
+            self._mouse_active = True
+            return False
+
+        # ── 마우스: 타자 스윙 / 배너 넘기기 ───────────────
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
+            if self.state == RESULT:
+                self.timer = 0
+                return True
+            if (self.state == FLIGHT and self.batter_is_human
+                    and not self.swung):
+                self._do_swing(self.pitch.t, (self.bat_x, self.bat_y))
+                return True
+            return False
+
         if event.type != pygame.KEYDOWN:
             return False
 
-        # 결과 배너는 SPACE로 빨리 넘긴다
-        if self.state == RESULT and event.key in (pygame.K_SPACE, pygame.K_RETURN):
+        # 결과 배너는 아무 결정키로나 빨리 넘긴다
+        if self.state == RESULT and event.key in SWING_KEYS + THROW_KEYS:
             self.timer = 0
             return True
 
-        # 사람 투수 — 구종 / 수비 시프트 선택 & 투구
+        # ── 사람 투수 — 구종(숫자) · 코스(넘패드) · 시프트 · 투구 ──
         if self.state == SELECT and self.pitcher_is_human:
             if event.key in PITCH_KEYS:
                 self.pitch_idx = PITCH_KEYS.index(event.key)
                 sfx.play("move")
                 return True
+
+            cell = NUMPAD_CELLS.get(event.key, FALLBACK_CELLS.get(event.key))
+            if cell is not None:
+                self.course_cell = cell
+                self.pit_x, self.pit_y = self._course_xy()
+                sfx.play("move")
+                return True
+
+            if event.key in OUTSIDE_KEYS:
+                self.outside = not self.outside
+                self.pit_x, self.pit_y = self._course_xy()
+                sfx.play("move")
+                return True
+
             if event.key in (SHIFT_PREV, SHIFT_NEXT):
                 step = -1 if event.key == SHIFT_PREV else 1
                 self.shift_idx = (self.shift_idx + step) % len(defense.SHIFTS)
                 sfx.play("move")
                 return True
-            if event.key in self._act_keys(self.host.pitcher_player):
+
+            if event.key in THROW_KEYS:
                 self._throw_user_pitch()
                 return True
             return False
 
-        # 사람 타자 — 스윙
+        # ── 사람 타자 — 키보드 보조 스윙(마우스가 주 조작) ──
         if (self.state == FLIGHT and self.batter_is_human and not self.swung
-                and event.key in self._act_keys(self.host.batter_player)):
+                and event.key in SWING_KEYS):
             self._do_swing(self.pitch.t, (self.bat_x, self.bat_y))
             return True
 
         return False
 
     @staticmethod
-    def _axis(keys, keyset):
-        dx = any(keys[k] for k in keyset["right"]) - any(keys[k] for k in keyset["left"])
-        dy = any(keys[k] for k in keyset["down"]) - any(keys[k] for k in keyset["up"])
-        return dx, dy
-
-    @staticmethod
     def _clamp(x, y, margin):
         return (max(C.ZONE_X - margin, min(C.ZONE_X + C.ZONE_W + margin, x)),
                 max(C.ZONE_Y - margin, min(C.ZONE_Y + C.ZONE_H + margin, y)))
 
-    def _read_cursor_keys(self, move_batter=True, move_pitcher=True):
-        """
-        눌린 방향키를 읽어 각 역할의 커서를 움직인다.
-        2인용에서는 두 커서가 동시에 움직일 수 있다(서로 다른 키셋).
-        """
-        keys = pygame.key.get_pressed()
+    @staticmethod
+    def window_to_playfield(pos):
+        """창 좌표 → 플레이필드 좌표. 창은 플레이필드의 정수배 확대이다."""
+        x, y = pos
+        return x / C.SCALE, y / C.SCALE
 
-        if move_batter and self.batter_is_human:
-            dx, dy = self._axis(keys, self._move_keys(self.host.batter_player))
+    def _read_batter_input(self, mouse_pos=None, keys=None):
+        """
+        타자 배트 조준 — **마우스가 주 조작**이다.
+
+        mouse_pos / keys 는 테스트에서 주입하기 위한 것이다. SDL dummy 드라이버는
+        set_pos 가 반영되지 않아 실제 마우스로는 좌표 변환을 검증할 수 없다.
+        """
+        if not self.batter_is_human:
+            return
+
+        if self._mouse_active:
+            if mouse_pos is None:
+                mouse_pos = pygame.mouse.get_pos()
+            px, py = self.window_to_playfield(mouse_pos)
+            self.bat_x, self.bat_y = self._clamp(px, py, 16)
+
+        if keys is None:
+            keys = pygame.key.get_pressed()
+        dx = any(keys[k] for k in BAT_ARROWS["right"]) - \
+             any(keys[k] for k in BAT_ARROWS["left"])
+        dy = any(keys[k] for k in BAT_ARROWS["down"]) - \
+             any(keys[k] for k in BAT_ARROWS["up"])
+        if dx or dy:
+            self._mouse_active = False     # 방향키를 쓰면 마우스 추종을 끈다
             self.bat_x, self.bat_y = self._clamp(
                 self.bat_x + dx * CURSOR_SPEED,
                 self.bat_y + dy * CURSOR_SPEED, 16)
-
-        if move_pitcher and self.pitcher_is_human:
-            dx, dy = self._axis(keys, self._move_keys(self.host.pitcher_player))
-            # 투구는 볼을 던질 수 있어야 하므로 타격보다 넓게 움직인다
-            self.pit_x, self.pit_y = self._clamp(
-                self.pit_x + dx * CURSOR_SPEED,
-                self.pit_y + dy * CURSOR_SPEED, 22)
 
     # ── 갱신 ──────────────────────────────────────────────
     def update(self):
@@ -213,17 +284,17 @@ class AtBatEngine:
 
         elif self.state == SELECT:
             # 투수가 코스를 잡는 동안 타자도 미리 겨눌 수 있다
-            self._read_cursor_keys()
+            self._read_batter_input()
 
         elif self.state == WINDUP:
             self.timer -= 1
-            self._read_cursor_keys(move_pitcher=False)
+            self._read_batter_input()
             if self.timer <= 0:
                 sfx.play("pitch")
                 self.state = FLIGHT
 
         elif self.state == FLIGHT:
-            self._read_cursor_keys(move_pitcher=False)
+            self._read_batter_input()
             if self.swing_frame >= 0:
                 self.swing_frame += 1
             self.pitch.update()
