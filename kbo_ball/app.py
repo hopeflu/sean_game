@@ -31,10 +31,14 @@ class App:
         self.running = True
 
         # ── 씬 간 공유 상태 ───────────────────────────────
+        self.mode = "duel"          # "duel"(투타 대결) | "game"(9이닝)
+        self.two_player = False     # 2인용 대전 여부 (mode="game"일 때만 의미)
         self.my_team = None
         self.opp_team = None
-        self.lineup = []
-        self.pitcher = None
+        self.lineup = []            # 유저 팀 타순
+        self.opp_lineup = []        # 상대 팀 타순 (1경기 모드)
+        self.pitcher = None         # 상대 선발
+        self.my_pitcher = None      # 우리 선발 (1경기 모드에서 유저가 던진다)
 
         self.scene = TitleScene(self)
 

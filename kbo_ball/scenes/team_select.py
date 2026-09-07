@@ -70,14 +70,22 @@ class TeamSelectScene(Scene):
                 self._start_game()
 
     def _start_game(self):
-        """선택 결과로 앱 상태를 채우고 대결 씬으로 넘어간다."""
+        """선택 결과로 앱 상태를 채우고 선택한 모드의 씬으로 넘어간다."""
         app = self.app
         app.my_team, app.opp_team = self.picked
-        app.lineup = build_lineup(app.my_team)
-        app.pitcher = build_pitcher(app.opp_team)
 
-        from .duel import DuelScene
-        self.next_scene = DuelScene(app)
+        # 1경기 모드는 양 팀의 타순과 선발이 모두 필요하다
+        app.lineup = build_lineup(app.my_team)
+        app.opp_lineup = build_lineup(app.opp_team)
+        app.pitcher = build_pitcher(app.opp_team)      # 상대 선발
+        app.my_pitcher = build_pitcher(app.my_team)    # 우리 선발
+
+        if getattr(app, "mode", "duel") == "game":
+            from .game import GameScene
+            self.next_scene = GameScene(app)
+        else:
+            from .duel import DuelScene
+            self.next_scene = DuelScene(app)
 
     # ── 픽셀 아트 레이어 ──────────────────────────────────
     def draw_playfield(self, pf):
@@ -96,7 +104,11 @@ class TeamSelectScene(Scene):
     # ── HUD 레이어 ────────────────────────────────────────
     def draw_hud(self, win):
         cx = C.WIN_W // 2
-        head = "내 팀 선택 (공격)" if self.step == 0 else "상대 팀 선택 (수비)"
+        if getattr(self.app, "two_player", False):
+            # 2인용은 1P=홈(후공), 2P=원정(선공) — game.py 의 규약과 같다
+            head = "1P 팀 선택 (홈·후공)" if self.step == 0 else "2P 팀 선택 (원정·선공)"
+        else:
+            head = "내 팀 선택 (공격)" if self.step == 0 else "상대 팀 선택 (수비)"
         draw_text(win, head, (cx, 42), size=32, color=C.YELLOW,
                   bold=True, anchor="center")
 
@@ -140,7 +152,8 @@ class TeamSelectScene(Scene):
         draw_text(win, "타자", (324, 500), size=16, color=(170, 180, 210), anchor="center")
         draw_text(win, "투수", (636, 500), size=16, color=(170, 180, 210), anchor="center")
         if self.picked[0]:
-            draw_text(win, f"공격  {self.picked[0]['name']}",
+            owner = "1P" if getattr(self.app, "two_player", False) else "공격"
+            draw_text(win, f"{owner}  {self.picked[0]['name']}",
                       (96, 500), size=17, color=C.CYAN, anchor="center")
 
         draw_text(win,

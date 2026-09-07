@@ -110,6 +110,87 @@ def result_banner(surf, text, sub=None, color=C.YELLOW, y=None):
                   size=19, color=(200, 210, 230), anchor="center")
 
 
+def linescore(surf, x, y, board, away_team, home_team, away_stats, home_stats,
+              w=436):
+    """
+    상단 중앙 전광판 — 이닝별 득점 + R(득점) H(안타).
+
+    연장 이닝이 붙어도 폭이 늘어나지 않도록 칸 너비를 이닝 수로 나눠 정한다.
+    현재 진행 중인 반 이닝은 노란 테두리로 표시한다.
+    """
+    n = board.innings_played
+    head_w, tail_w = 62, 40                      # 팀명 칸 / R·H 칸
+    cell = max(16, (w - head_w - tail_w * 2) // n)
+    h = 78
+    panel(surf, (x, y, w, h))
+
+    def col_x(i):
+        return x + head_w + i * cell
+
+    # ── 헤더 ──────────────────────────────────────────────
+    for i in range(n):
+        draw_text(surf, str(i + 1), (col_x(i) + cell // 2, y + 8), size=13,
+                  color=(150, 160, 195), anchor="midtop")
+    draw_text(surf, "R", (x + w - tail_w * 2 + tail_w // 2, y + 8), size=13,
+              color=C.YELLOW, bold=True, anchor="midtop")
+    draw_text(surf, "H", (x + w - tail_w + tail_w // 2, y + 8), size=13,
+              color=(150, 160, 195), anchor="midtop")
+
+    # ── 두 팀 행 ──────────────────────────────────────────
+    rows = (("away", away_team, away_stats), ("home", home_team, home_stats))
+    for r, (side, team, stats) in enumerate(rows):
+        ry = y + 28 + r * 24
+        draw_text(surf, team["code"], (x + 10, ry), size=16,
+                  color=team["accent"], bold=True)
+
+        for i, runs in enumerate(board.row(side, n)):
+            txt = "-" if runs is None else str(runs)
+            col = C.WHITE if runs is not None else (78, 84, 110)
+            # 지금 진행 중인 반 이닝 강조
+            live = (not board.final and i == board.inning - 1
+                    and ((side == "away") == board.top))
+            if live:
+                pygame.draw.rect(surf, C.YELLOW,
+                                 (col_x(i) + 1, ry - 2, cell - 2, 22), 1)
+            draw_text(surf, txt, (col_x(i) + cell // 2, ry), size=15,
+                      color=col, anchor="midtop")
+
+        draw_text(surf, str(board.total(side)),
+                  (x + w - tail_w * 2 + tail_w // 2, ry), size=17,
+                  color=C.YELLOW, bold=True, anchor="midtop")
+        draw_text(surf, str(stats.hits),
+                  (x + w - tail_w + tail_w // 2, ry), size=15,
+                  color=(200, 210, 230), anchor="midtop")
+
+
+def pitch_selector(surf, x, y, types, idx, w=560):
+    """유저 투구 시 구종 선택 줄. 선택된 구종을 그 구종의 식별색으로 강조한다."""
+    chip = w // len(types)
+    for i, t in enumerate(types):
+        cx = x + i * chip
+        on = (i == idx)
+        bg = (t["color"] if on else (26, 28, 46))
+        fg = ((10, 10, 20) if on else (150, 160, 190))
+        bevel_box(surf, (cx + 3, y, chip - 6, 34), bg,
+                  (240, 240, 250) if on else (70, 74, 100), (16, 16, 26),
+                  border=2 if on else 1)
+        draw_text(surf, f"{i + 1}", (cx + 12, y + 8), size=13, color=fg)
+        draw_text(surf, t["name"], (cx + chip // 2 + 6, y + 8), size=16,
+                  color=fg, bold=on, anchor="midtop")
+
+
+def shift_indicator(surf, x, y, shift, w=196, h=34):
+    """현재 수비 시프트 표시. 표준이 아니면 강조한다."""
+    active = shift["key"] != "STD"
+    bevel_box(surf, (x, y, w, h), (34, 26, 16) if active else (26, 28, 46),
+              (230, 200, 120) if active else (70, 74, 100), (16, 16, 26),
+              border=2 if active else 1)
+    draw_text(surf, "수비", (x + 10, y + 9), size=13, color=(150, 160, 190))
+    draw_text(surf, shift["name"], (x + w - 10, y + 7), size=15,
+              color=C.YELLOW if active else (190, 198, 220),
+              bold=active, anchor="topright")
+
+
 def pitch_log(surf, x, y, entries):
     """최근 타석 결과 목록."""
     for i, line in enumerate(entries[-6:]):

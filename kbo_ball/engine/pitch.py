@@ -106,6 +106,26 @@ class Pitch:
                 C.ZONE_Y <= self.plate_y <= C.ZONE_Y + C.ZONE_H)
 
 
+def make_pitch_at(ptype: dict, plate_xy, pitcher: dict, rng=None) -> Pitch:
+    """
+    **유저가 던지는 공**을 만든다.
+
+    유저는 "공이 홈플레이트를 지나갈 지점"을 커서로 찍는다. 그래서 조준점에서
+    무브먼트를 먼저 빼 두어야 커서 위치와 실제 통과 지점이 일치한다.
+    제구 오차는 그 뒤에 얹으며, control 이 높을수록 작다.
+    """
+    rng = rng or random
+    ax, ay = plate_xy
+    tx = ax - ptype["bx"]
+    ty = ay - ptype["by"]
+
+    spread = max(0.6, (11 - pitcher["control"]) * 1.05)
+    tx += rng.gauss(0, spread)
+    ty += rng.gauss(0, spread * 0.85)
+
+    return Pitch(ptype, (tx, ty), velocity=pitcher["velocity"])
+
+
 class PitcherAI:
     """
     CPU 투수. 볼카운트에 따라 구종·코스를 고른다.

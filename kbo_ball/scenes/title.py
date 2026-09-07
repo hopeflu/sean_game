@@ -22,8 +22,8 @@ class TitleScene(Scene):
         if event.type == pygame.KEYDOWN:
             if event.key in (pygame.K_SPACE, pygame.K_RETURN, pygame.K_KP_ENTER):
                 sfx.play("select")
-                from .team_select import TeamSelectScene
-                self.next_scene = TeamSelectScene(self.app)
+                from .mode_select import ModeSelectScene
+                self.next_scene = ModeSelectScene(self.app)
             elif event.key == pygame.K_ESCAPE:
                 self.quit = True
 

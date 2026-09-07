@@ -48,3 +48,23 @@ BY_CODE = {t["code"]: t for t in TEAMS}
 def get_team(index: int) -> dict:
     """인덱스를 순환시켜 팀을 반환한다(메뉴에서 좌우로 넘길 때 사용)."""
     return TEAMS[index % len(TEAMS)]
+
+
+def _color_dist(c1, c2) -> float:
+    return sum((a - b) ** 2 for a, b in zip(c1, c2)) ** 0.5
+
+
+def contrast_uniform(team: dict, other: dict, threshold: float = 90.0) -> dict:
+    """
+    상대 팀과 주색이 너무 비슷하면 **보조색을 주색으로 바꿔** 돌려준다.
+
+    KIA(208,32,40)와 LG(200,36,60)처럼 둘 다 빨강인 매치업에서는 투수와 타자
+    스프라이트가 구분되지 않는다. 실제 야구가 홈/원정 유니폼을 달리 입는 것과
+    같은 이유로, 수비 팀 쪽에만 적용해 화면에서 두 팀을 갈라 놓는다.
+    원본 딕셔너리는 건드리지 않고 사본을 만든다.
+    """
+    if _color_dist(team["primary"], other["primary"]) >= threshold:
+        return team
+    alt = dict(team)
+    alt["primary"], alt["second"] = team["second"], team["primary"]
+    return alt

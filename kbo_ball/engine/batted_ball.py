@@ -15,6 +15,8 @@
 import math
 import random
 
+from . import defense
+
 # ── 구장 규격 (미터) ──────────────────────────────────────
 # 국내 구장에서 흔한 치수를 기준으로 삼은 게임용 상수.
 FENCE_LINE   = 99.0     # 좌우 폴대 쪽
@@ -66,8 +68,14 @@ def fence_at(spray_deg: float) -> float:
     return FENCE_CENTER + (FENCE_LINE - FENCE_CENTER) * ratio
 
 
-def resolve(contact, batter: dict, rng: random.Random = None) -> BattedBall:
-    """컨택 결과를 타구로 변환한다. contact.made 가 True일 때만 호출."""
+def resolve(contact, batter: dict, rng: random.Random = None,
+            shift: str = "STD") -> BattedBall:
+    """
+    컨택 결과를 타구로 변환한다. contact.made 가 True일 때만 호출.
+
+    shift : 수비 시프트 키 (engine.defense.SHIFTS). 안타 확률에만 영향을 주며
+            홈런·파울 판정은 건드리지 않는다.
+    """
     rng = rng or random
 
     # ── 1) 타구 속도 ──────────────────────────────────────
@@ -87,9 +95,12 @@ def resolve(contact, batter: dict, rng: random.Random = None) -> BattedBall:
     launch = max(-25.0, min(70.0, launch))
 
     # ── 3) 타구 방향 ──────────────────────────────────────
-    # 타이밍이 빠르면(음수) 당겨치고, 늦으면 밀어친다.
-    # 좌우 커서 오차도 방향에 일부 반영된다.
-    spray = -contact.timing * 4.0 + contact.dx * 0.5 + rng.uniform(-4, 4)
+    # 부호 규약: **음수 = 좌측(3루쪽), 양수 = 우측(1루쪽)**.
+    # 우타자 기준 타이밍이 빠르면(timing<0) 당겨쳐서 좌측으로 간다.
+    # 배트가 공 오른쪽에 닿으면(dx>0) 공은 좌측으로 밀린다.
+    # (이전에는 두 항의 부호가 뒤집혀 "빨리 친 타구가 1루쪽"으로 가고
+    #  _classify 의 3루쪽/1루쪽 표기도 반대로 나왔다)
+    spray = contact.timing * 4.0 - contact.dx * 0.5 + rng.uniform(-4, 4)
     spray = max(-70.0, min(70.0, spray))
 
     # ── 4) 비거리 ─────────────────────────────────────────
@@ -97,10 +108,10 @@ def resolve(contact, batter: dict, rng: random.Random = None) -> BattedBall:
     # 낮은 라이너·땅볼도 어느 정도는 굴러가도록 바닥값을 준다
     distance = max(distance, 40.0 * exit_v * max(0.0, 1 - abs(launch) / 45.0))
 
-    return _classify(exit_v, launch, spray, distance, rng)
+    return _classify(exit_v, launch, spray, distance, rng, shift)
 
 
-def _classify(exit_v, launch, spray, distance, rng) -> BattedBall:
+def _classify(exit_v, launch, spray, distance, rng, shift="STD") -> BattedBall:
     """
     물리량 → 결과 코드/진루 수/문구.
 
@@ -115,6 +126,11 @@ def _classify(exit_v, launch, spray, distance, rng) -> BattedBall:
 
     wall = fence_at(spray)
     gap = 22 <= abs(spray) <= 38          # 좌중간·우중간
+    # 수비 시프트 — 안타 확률에만 곱한다(홈런/파울은 수비로 못 막는다)
+    shift_k = defense.hit_prob_modifier(shift, launch, spray)
+
+    def roll(p):
+        return rng.random() < max(0.0, min(0.97, p * shift_k))
 
     # ── 팝플라이 (너무 높이 떴다) ─────────────────────────
     if launch > 50:
@@ -128,13 +144,13 @@ def _classify(exit_v, launch, spray, distance, rng) -> BattedBall:
         if distance >= wall - 8:                       # 펜스 직격
             return BattedBall(exit_v, launch, spray, distance, "2B", 2, "펜스 직격 2루타!")
         if distance >= wall - 25:                      # 외야수 뒤 깊은 타구
-            if rng.random() < (0.55 if gap else 0.32):
+            if roll(0.55 if gap else 0.32):
                 code, base, txt = ("3B", 3, "우중간을 가르는 3루타!") \
                     if gap and rng.random() < 0.25 else ("2B", 2, "외야 깊숙한 2루타!")
                 return BattedBall(exit_v, launch, spray, distance, code, base, txt)
             return BattedBall(exit_v, launch, spray, distance, "FLY", 0, "외야 뜬공 아웃")
         if 46 <= distance:                             # 내야 뒤 텍사스성 타구
-            if rng.random() < 0.22:
+            if roll(0.22):
                 return BattedBall(exit_v, launch, spray, distance, "1B", 1, "빗맞은 안타")
             return BattedBall(exit_v, launch, spray, distance, "FLY", 0, "외야 뜬공 아웃")
         return BattedBall(exit_v, launch, spray, distance, "POP", 0, "내야 뜬공 아웃")
@@ -143,7 +159,7 @@ def _classify(exit_v, launch, spray, distance, rng) -> BattedBall:
     if launch >= 5:
         # 강한 라이너일수록 수비 사이를 뚫는다. 정면 직선타로 잡히기도 한다.
         p = max(0.10, min(0.62, 0.06 + (exit_v - 0.35) * 1.25))
-        if rng.random() < p:
+        if roll(p):
             if exit_v >= 0.80 and gap and rng.random() < 0.45:
                 return BattedBall(exit_v, launch, spray, distance, "2B", 2,
                                   "갭을 가르는 2루타!")
@@ -155,7 +171,7 @@ def _classify(exit_v, launch, spray, distance, rng) -> BattedBall:
     p = max(0.03, min(0.38, (exit_v - 0.48) * 0.85))
     if abs(spray) >= 25:
         p += 0.06
-    if rng.random() < p:
+    if roll(p):
         side = "3루쪽" if spray < -15 else ("1루쪽" if spray > 15 else "중전")
         return BattedBall(exit_v, launch, spray, distance, "1B", 1, f"{side} 안타")
     return BattedBall(exit_v, launch, spray, distance, "GO", 0, "내야 땅볼 아웃")

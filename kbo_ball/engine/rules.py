@@ -63,6 +63,10 @@ class Stats:
         self.rbi = 0
         self.runs = 0
 
+    # 누적 대상 필드 — merge()가 이 목록만 더한다
+    _FIELDS = ("pa", "ab", "hits", "doubles", "triples", "hr",
+               "walks", "strikeouts", "rbi", "runs")
+
     @property
     def avg(self) -> float:
         return self.hits / self.ab if self.ab else 0.0
@@ -72,6 +76,11 @@ class Stats:
         if not self.ab:
             return ".000"
         return f"{self.avg:.3f}".lstrip("0")
+
+    def merge(self, other: "Stats"):
+        """반 이닝 기록을 경기 누적 기록에 더한다(1경기 모드에서 사용)."""
+        for f in self._FIELDS:
+            setattr(self, f, getattr(self, f) + getattr(other, f))
 
 
 # ── 반 이닝 (공격 한 번) ──────────────────────────────────
@@ -200,31 +209,106 @@ class HalfInning:
             self.log.pop(0)
 
 
-# ── 정규 경기 전광판 (Phase 2에서 사용) ───────────────────
+# ── 정규 경기 전광판 ──────────────────────────────────────
 class Scoreboard:
     """
-    이닝별 득점을 누적한다. Phase 1에서는 쓰이지 않지만,
-    1경기 모드 확장 시 HalfInning을 그대로 얹을 수 있도록 미리 정의해 둔다.
+    이닝별 득점을 누적하고 경기 종료를 판정한다.
+
+    구현한 규칙
+    -----------
+    * 홈팀이 9회초를 마친 시점에 앞서 있으면 **9회말을 하지 않고** 경기 종료
+    * 9회말(또는 연장 말)에 홈팀이 역전하는 순간 **끝내기**로 즉시 종료
+    * 정규 이닝 후 동점이면 연장, `max_innings`까지 가고도 동점이면 **무승부**
+
+    리스트를 미리 채우지 않고 append로 늘리기 때문에 연장 이닝이 자연히 들어간다.
     """
 
-    def __init__(self, innings: int = 9):
-        self.innings = innings
-        self.away = [None] * innings     # 원정(선공)
-        self.home = [None] * innings     # 홈(후공)
+    def __init__(self, innings: int = 9, max_innings: int = 12):
+        self.regulation = innings
+        self.max_innings = max_innings
+        self.away: list = []             # 원정(선공) 이닝별 득점
+        self.home: list = []             # 홈(후공)  이닝별 득점
         self.inning = 1
         self.top = True                  # True=초, False=말
+        self.final = False               # 경기 종료 여부
+        self.walkoff = False             # 끝내기로 끝났는가
 
-    def record(self, runs: int):
-        idx = self.inning - 1
-        (self.away if self.top else self.home)[idx] = runs
-
+    # ── 조회 ──────────────────────────────────────────────
     def total(self, side: str) -> int:
         row = self.away if side == "away" else self.home
         return sum(r for r in row if r is not None)
 
-    def next_half(self):
-        if self.top:
-            self.top = False
+    @property
+    def innings_played(self) -> int:
+        """전광판에 표시할 이닝 수 (최소 정규 이닝)."""
+        return max(self.regulation, len(self.away), len(self.home), self.inning)
+
+    def row(self, side: str, length: int) -> list:
+        """길이를 맞춘 이닝별 득점 행. 아직 안 한 이닝은 None."""
+        r = list(self.away if side == "away" else self.home)
+        r += [None] * (length - len(r))
+        return r[:length]
+
+    @property
+    def winner(self) -> str:
+        """'away' | 'home' | 'draw' — 종료되지 않았으면 진행 중 기준으로 판단."""
+        a, h = self.total("away"), self.total("home")
+        if a == h:
+            return "draw"
+        return "away" if a > h else "home"
+
+    # ── 진행 ──────────────────────────────────────────────
+    def record(self, runs: int):
+        """방금 끝난 반 이닝의 득점을 기록한다."""
+        row = self.away if self.top else self.home
+        # 홈팀이 9회말을 건너뛴 경우 등 빈 칸이 생기지 않도록 길이를 맞춘다
+        while len(row) < self.inning - 1:
+            row.append(None)
+        if len(row) < self.inning:
+            row.append(runs)
         else:
-            self.top = True
-            self.inning += 1
+            row[self.inning - 1] = runs
+
+    def check_walkoff(self, live_runs: int) -> bool:
+        """
+        말 공격 도중 호출. 홈팀이 앞서는 순간 끝내기.
+        live_runs 는 아직 record 되지 않은 현재 반 이닝의 득점.
+        """
+        if self.top or self.inning < self.regulation:
+            return False
+        return self.total("home") + live_runs > self.total("away")
+
+    def finish_walkoff(self, live_runs: int):
+        """끝내기로 경기를 끝낸다."""
+        self.record(live_runs)
+        self.walkoff = True
+        self.final = True
+
+    def advance(self):
+        """반 이닝 종료 후 다음 반 이닝으로. 종료 조건도 여기서 판정한다."""
+        if self.final:
+            return
+
+        if self.top:
+            # 9회초 종료 시점에 홈팀이 앞서면 말 공격이 필요 없다
+            if (self.inning >= self.regulation
+                    and self.total("home") > self.total("away")):
+                self.final = True
+                return
+            self.top = False
+            return
+
+        # 말 공격 종료
+        if self.inning >= self.regulation and self.total("away") != self.total("home"):
+            self.final = True
+            return
+        if self.inning >= self.max_innings:
+            self.final = True          # 연장 한계 — 동점이면 무승부
+            return
+
+        self.inning += 1
+        self.top = True
+
+    # ── 표시용 ────────────────────────────────────────────
+    def half_text(self) -> str:
+        return f"{self.inning}회{'초' if self.top else '말'}"

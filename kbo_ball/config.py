@@ -74,4 +74,9 @@ OUTS_PER_INNING = 3
 
 # ── 조작 안내 (타이틀/HUD에 표시) ─────────────────────────
 # 화살표 기호는 폰트에 따라 깨질 수 있어 글자로 표기한다.
-CONTROL_HINT = "방향키 조준   SPACE 스윙   ESC 뒤로   F1 스캔라인"
+CONTROL_HINT      = "방향키 조준   SPACE 스윙   ESC 뒤로   F1 스캔라인"
+CONTROL_HINT_BAT  = "방향키 조준   SPACE 스윙   ESC 뒤로   F1 스캔라인"
+CONTROL_HINT_PITCH = "방향키 코스 · 1-5 구종 · Q E 수비 · SPACE 투구"
+# 2인용 — 키가 사람을 따라간다. 하단 바 우측 좁은 칸에 들어가야 하므로 짧게.
+CONTROL_HINT_2P_P1 = "1P  방향키 · SPACE"
+CONTROL_HINT_2P_P2 = "2P  WASD · ENTER"
