@@ -2,7 +2,7 @@
 스윙 판정.
 
 세 축을 따로 재고, **역할을 분리**해서 합친다.
-  1) 타이밍(q_time) — SPACE를 누른 시점이 홈플레이트 도달(t=1.0)과 얼마나 가까운가
+  1) 타이밍(q_time) — 스윙 입력(좌클릭 또는 SPACE·Z) 시점이 홈플레이트 도달(t=1.0)과 얼마나 가까운가
   2) 좌우 코스(q_dx) — 커서가 공의 좌우 위치와 얼마나 겹치는가
   3) 상하 코스(q_dy) — 커서가 공의 상하 위치와 얼마나 겹치는가
 
@@ -44,7 +44,7 @@ class Contact:
 def judge(pitch, swing_t: float, cursor_xy, contact_rating: int) -> Contact:
     """
     pitch          : Pitch 인스턴스
-    swing_t        : SPACE를 누른 순간의 pitch.t 값
+    swing_t        : 스윙 입력(좌클릭 또는 SPACE·Z) 순간의 pitch.t 값
     cursor_xy      : 조준 커서 중심 화면좌표
     contact_rating : 타자 컨택 능력 1~10 (히트박스와 타이밍 창을 넓힌다)
     """
