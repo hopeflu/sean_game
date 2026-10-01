@@ -1,0 +1,9 @@
+__pycache__/
+*.pyc
+.dropbox
+desktop.ini
+*.tmp
+Thumbs.db
+.DS_Store
+# 별도 git 저장소
+FA_Sean_2026/
