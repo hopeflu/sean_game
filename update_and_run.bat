@@ -11,7 +11,7 @@ cd /d "%~dp0"
 echo ============================================================
 echo   최신 버전으로 업데이트 중...
 echo ============================================================
-git pull origin claude/compassionate-mayer-nxfvux
+git pull origin main
 if errorlevel 1 (
     echo.
     echo [!] git pull 실패. 인터넷/깃 설정을 확인하세요.
